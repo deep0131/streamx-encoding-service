@@ -97,12 +97,38 @@ public class EncodingService {
             uploadEncodedFilesToS3(encodedDir, encodedPrefix);
             log.info("Encoded videos uploaded to S3 at prefix: {}", encodedPrefix);
 
-        } catch (Exception e) {
+            // Step 6: Publish VideoEncodedEvent to kafka
+            String masterPlaylistKey = encodedPrefix + "master.m3u8";
+            String hlsUrl = "https://" + bucketName + ".s3.amazonaws.com/" + masterPlaylistKey;
+
+            VideoEncodedEvent videoEncodedEvent = VideoEncodedEvent.builder()
+                    .movieId(videoUploadedEvent.getMovieId())
+                    .hlsUrl(hlsUrl)
+                    .masterPlaylistKey(masterPlaylistKey)
+                    .success(true)
+                    .errorMessage(null)
+                    .build();
+
+            kafkaTemplate.send(VIDEO_ENCODED_TOPIC, videoUploadedEvent.getMovieId(), videoEncodedEvent);
+            log.info("VideoEncodedEvent is published for movie: {}", videoUploadedEvent.getMovieId());
+        }
+        catch (Exception e) {
+
             log.error("Error during encoding pipeline for video {}: {}", videoUploadedEvent.getMovieId(), e.getMessage());
 
-            // TODO : Publish a failed kafka event
+            // Publish encodingFailedEvent to VIDEO_ENCODED_TOPIC
+            VideoEncodedEvent encodingFailedEvent = VideoEncodedEvent.builder()
+                    .movieId(videoUploadedEvent.getMovieId())
+                    .hlsUrl(null)
+                    .masterPlaylistKey(null)
+                    .success(false)
+                    .errorMessage(e.getMessage())
+                    .build();
 
-        } finally {
+            kafkaTemplate.send(VIDEO_ENCODED_TOPIC, videoUploadedEvent.getMovieId(), encodingFailedEvent);
+        }
+        finally {
+
             try {
                 FileSystemUtils.deleteRecursively(jobDir);
                 log.info("Deleted temporary directory: {}", jobDir);
