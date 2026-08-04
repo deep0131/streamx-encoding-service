@@ -60,9 +60,10 @@ public class EncodingService {
     public void encodeVideo(VideoUploadedEvent videoUploadedEvent) {
         log.info("Starting encoding for video: {}", videoUploadedEvent.getMovieId());
 
-        Path jobDir = null;
+        Path jobDir = Paths.get(basePath).resolve(videoUploadedEvent.getMovieId());
+
         try {
-            jobDir = Paths.get(basePath).resolve(videoUploadedEvent.getMovieId());
+
             Files.createDirectories(jobDir);
 
             // Step 1: Download raw video from S3
@@ -99,33 +100,43 @@ public class EncodingService {
 
             // Step 6: Publish VideoEncodedEvent to kafka
             String masterPlaylistKey = encodedPrefix + "master.m3u8";
-            String hlsUrl = "https://" + bucketName + ".s3.amazonaws.com/" + masterPlaylistKey;
+            // String hlsUrl = "https://" + bucketName + ".s3.amazonaws.com/" + masterPlaylistKey; To be removed
 
             VideoEncodedEvent videoEncodedEvent = VideoEncodedEvent.builder()
                     .movieId(videoUploadedEvent.getMovieId())
-                    .hlsUrl(hlsUrl)
+                    //.hlsUrl(hlsUrl) to be removed
                     .masterPlaylistKey(masterPlaylistKey)
                     .success(true)
-                    .errorMessage(null)
                     .build();
 
-            kafkaTemplate.send(VIDEO_ENCODED_TOPIC, videoUploadedEvent.getMovieId(), videoEncodedEvent);
-            log.info("VideoEncodedEvent is published for movie: {}", videoUploadedEvent.getMovieId());
+            kafkaTemplate.send(VIDEO_ENCODED_TOPIC, videoUploadedEvent.getMovieId(), videoEncodedEvent)
+                    .whenComplete((result, ex) -> {
+
+                        if (ex != null)
+                            log.error("Failed to publish VideoEncodedEvent", ex);
+                        else
+                            log.info("VideoEncodedEvent published successfully for video {}", videoUploadedEvent.getMovieId());
+                    });
         }
         catch (Exception e) {
 
-            log.error("Error during encoding pipeline for video {}: {}", videoUploadedEvent.getMovieId(), e.getMessage());
+            log.error("Error during encoding pipeline for video {} ", videoUploadedEvent.getMovieId(), e);
 
             // Publish encodingFailedEvent to VIDEO_ENCODED_TOPIC
             VideoEncodedEvent encodingFailedEvent = VideoEncodedEvent.builder()
                     .movieId(videoUploadedEvent.getMovieId())
-                    .hlsUrl(null)
-                    .masterPlaylistKey(null)
                     .success(false)
                     .errorMessage(e.getMessage())
                     .build();
 
-            kafkaTemplate.send(VIDEO_ENCODED_TOPIC, videoUploadedEvent.getMovieId(), encodingFailedEvent);
+            kafkaTemplate.send(VIDEO_ENCODED_TOPIC, videoUploadedEvent.getMovieId(), encodingFailedEvent)
+                    .whenComplete((result, ex) -> {
+
+                        if (ex != null)
+                            log.error("Failed to publish EncodingFailedEvent", ex);
+                        else
+                            log.info("EncodingFailedEvent published successfully");
+                    });
         }
         finally {
 
