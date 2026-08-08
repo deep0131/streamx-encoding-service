@@ -1,6 +1,5 @@
 package com.streamx.encodingservice.service;
 
-import com.streamx.encodingservice.config.S3Config;
 import com.streamx.encodingservice.event.VideoEncodedEvent;
 import com.streamx.encodingservice.event.VideoUploadedEvent;
 import lombok.RequiredArgsConstructor;
@@ -9,6 +8,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.FileSystemUtils;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -22,7 +23,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class EncodingService {
 
-    private final S3Config s3Config;
+    private final S3Client s3Client;
     private final KafkaTemplate<String, VideoEncodedEvent> kafkaTemplate;
 
     @Value("${aws.s3.bucket.name}")
@@ -146,6 +147,48 @@ public class EncodingService {
             } catch (IOException e) {
                 log.error("Failed to delete temporary directory: {}", jobDir, e);
             }
+        }
+    }
+
+    private void downloadFromS3(String videoKey, Path localVideoPath) {
+
+        GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                .bucket(bucketName)
+                .key(videoKey)
+                .build();
+
+        s3Client.getObject(getObjectRequest, localVideoPath);
+    }
+
+    private void encodeToHLS(Path localVideoPath, Path qualityDir,
+                             int width, int height, int bitrate) throws IOException, InterruptedException {
+
+        Path playlistPath = qualityDir.resolve("playlist.m3u8");
+        Path segmentPattern = qualityDir.resolve("segment_%03d.ts");
+
+        // FFmpeg command for HLS encoding
+        List<String> command = Arrays.asList(
+                ffmpegPath,
+                "-i", localVideoPath.toString(),                       // Input file location, from here it takes the video
+                "-vf", "scale=" + width + ":" + height,     // resolution
+                "-c:v", "libx264",                          // codec
+                "-b:v", bitrate + "k",                      // video bitrate
+                "-c:a", "aac",                              // audio codec
+                "-b:a", "128k",                             // audio bitrate
+                "-hls_time", "10",                          // chunks length
+                "-hls_list_size", "0",                      // keep all segments in the playlist
+                "-hls_segment_filename", segmentPattern.toString(), // segment naming
+                "-f", "hls",                                // output format HLS
+                playlistPath.toString()                     // output playlist
+        );
+
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+        processBuilder.redirectErrorStream(true);
+        Process process = processBuilder.start();
+
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new RuntimeException("FFmpeg encoding failed for quality " + height + "p. Exit code: " + exitCode);
         }
     }
 }
