@@ -11,7 +11,9 @@ import org.springframework.util.FileSystemUtils;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -86,7 +88,6 @@ public class EncodingService {
 
                 // Step 3: Generate HLS
                 encodeToHLS(localVideoPath, qualityDir, width, height, bitrate);
-                log.info("Encoded video to {}p", height);
             }
 
             // Step 4: Create master playlist
@@ -160,6 +161,21 @@ public class EncodingService {
         s3Client.getObject(getObjectRequest, localVideoPath);
     }
 
+    /**
+     * Encodes a video file to HLS format using FFmpeg.
+     *
+     * FFmpeg command created:
+     *  - Multiple .ts segment files
+     *  - A .m3u8 playlist file for this quality
+     *
+     * @param localVideoPath the path to the local video file
+     * @param qualityDir the directory to store the encoded quality files
+     * @param width the width of the output video
+     * @param height the height of the output video
+     * @param bitrate the bitrate of the output video
+     * @throws IOException throws IOException
+     * @throws InterruptedException throws InterruptedException
+     */
     private void encodeToHLS(Path localVideoPath, Path qualityDir,
                              int width, int height, int bitrate) throws IOException, InterruptedException {
 
@@ -186,9 +202,51 @@ public class EncodingService {
         processBuilder.redirectErrorStream(true);
         Process process = processBuilder.start();
 
+        try (BufferedReader reader =
+                     new BufferedReader(
+                             new InputStreamReader(
+                                     process.getInputStream()))) {
+
+            String line;
+
+            while ((line = reader.readLine()) != null) {
+                log.info("FFmpeg {}p: {}", height, line);
+            }
+        }
+
         int exitCode = process.waitFor();
         if (exitCode != 0) {
             throw new RuntimeException("FFmpeg encoding failed for quality " + height + "p. Exit code: " + exitCode);
         }
+
+        log.info("FFmpeg encoding completed for {}p", height);
+    }
+
+    /**
+     * Generate master HLS playlist that references all quality playlists.
+     * This is the file the video player downloads first.
+     */
+    private void generateMasterPlaylist(String masterPlaylistPath) throws IOException {
+        StringBuilder master = new StringBuilder();
+        master.append("#EXTM3U\n");
+        master.append("#EXT-X-VERSION:3\n\n");
+
+        // Add each quality to master playlist
+        int[][] qualities = {{5000, 1920, 1080}, {2800, 1280, 720},
+                {1400, 854, 480}, {800, 640, 360}};
+
+        for (int[] q : qualities) {
+            int bitrate = q[0];
+            int width = q[1];
+            int height = q[2];
+
+            master.append("#EXT-X-STREAM-INF:BANDWIDTH=")
+                    .append(bitrate * 1000)
+                    .append(",RESOLUTION=").append(width).append("x").append(height)
+                    .append(",CODECS=\"avc1.42e01e,mp4a.40.2\"\n");
+            master.append(height).append("p/playlist.m3u8\n\n");
+        }
+
+        Files.writeString(Paths.get(masterPlaylistPath), master.toString());
     }
 }
