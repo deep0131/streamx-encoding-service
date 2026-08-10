@@ -8,8 +8,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.FileSystemUtils;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -226,14 +228,14 @@ public class EncodingService {
      * Generate master HLS playlist that references all quality playlists.
      * This is the file the video player downloads first.
      */
-    private void generateMasterPlaylist(String masterPlaylistPath) throws IOException {
+    private void generateMasterPlaylist(Path masterPlaylistPath) throws IOException {
         StringBuilder master = new StringBuilder();
         master.append("#EXTM3U\n");
         master.append("#EXT-X-VERSION:3\n\n");
 
         // Add each quality to master playlist
         int[][] qualities = {{5000, 1920, 1080}, {2800, 1280, 720},
-                {1400, 854, 480}, {800, 640, 360}};
+                {1400, 854, 480}};
 
         for (int[] q : qualities) {
             int bitrate = q[0];
@@ -247,6 +249,37 @@ public class EncodingService {
             master.append(height).append("p/playlist.m3u8\n\n");
         }
 
-        Files.writeString(Paths.get(masterPlaylistPath), master.toString());
+        Files.writeString(masterPlaylistPath, master.toString());
+    }
+
+    private void uploadEncodedFilesToS3(Path encodedDir, String s3Prefix) throws IOException {
+
+        Files.walk(encodedDir)
+                .filter(Files::isRegularFile)
+                .forEach(file -> {
+                    try{
+                        Path relativePath = encodedDir.relativize(file);
+
+                        String s3Key = s3Prefix + relativePath.toString().replace("\\", "/");
+
+                        String contentType = file.getFileName().toString().endsWith(".m3u8")
+                                ? "application/x-mpegURL"
+                                : "video/MP2T";
+
+                        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                                .bucket(bucketName)
+                                .key(s3Key)
+                                .contentType(contentType)
+                                .contentLength(Files.size(file))
+                                .build();
+
+                        s3Client.putObject(putObjectRequest, RequestBody.fromFile(file));
+
+                        log.info("Uploaded {} to S3 as {}", file, s3Key);
+                    }
+                    catch (Exception e){
+                        throw new RuntimeException("Failed to upload file: " + file, e);
+                    }
+                });
     }
 }
