@@ -27,20 +27,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class EncodingService {
 
-    private final S3Client s3Client;
-    private final KafkaTemplate<String, VideoEncodedEvent> kafkaTemplate;
-
-    @Value("${aws.s3.bucket.name}")
-    private String bucketName;
-
-    @Value("${ffmpeg.path}")
-    private String ffmpegPath;
-
-    @Value("${encoding.base_path}")
-    private String basePath;
-
     private static final String VIDEO_ENCODED_TOPIC = "video-encoded";
-
     // Video quality to encode
     // Format: resolution, bitrate, height
     private static final List<int[]> VIDEO_QUALITIES = Arrays.asList(
@@ -48,10 +35,18 @@ public class EncodingService {
             new int[]{1280, 2800, 720},   // 720p - 2800k bitrate
             new int[]{854, 1400, 480}     // 480p - 1400k bitrate
     );
+    private final S3Client s3Client;
+    private final KafkaTemplate<String, VideoEncodedEvent> kafkaTemplate;
+    @Value("${aws.s3.bucket.name}")
+    private String bucketName;
+    @Value("${ffmpeg.path}")
+    private String ffmpegPath;
+    @Value("${encoding.base_path}")
+    private String basePath;
 
     /**
      * Main Encoding Pipeline
-     *
+     * <p>
      * Steps :
      * 1. Download raw video from S3 uploaded by video service
      * 2. Encode video to different qualities using ffmpeg
@@ -59,8 +54,8 @@ public class EncodingService {
      * 4. Create a master playlist
      * 5. Upload encoded videos back to S3
      * 6. Publish VideoEncodedEvent to Kafka
-     * @param videoUploadedEvent
-     * Event published by video service when a video is uploaded to S3. Encoding service consumes this event to start the encoding pipeline.
+     *
+     * @param videoUploadedEvent Event published by video service when a video is uploaded to S3. Encoding service consumes this event to start the encoding pipeline.
      */
     public void encodeVideo(VideoUploadedEvent videoUploadedEvent) {
         log.info("Starting encoding for video: {}", videoUploadedEvent.getMovieId());
@@ -121,8 +116,7 @@ public class EncodingService {
                         else
                             log.info("VideoEncodedEvent published successfully for video {}", videoUploadedEvent.getMovieId());
                     });
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
 
             log.error("Error during encoding pipeline for video {} ", videoUploadedEvent.getMovieId(), e);
 
@@ -141,8 +135,7 @@ public class EncodingService {
                         else
                             log.info("EncodingFailedEvent published successfully");
                     });
-        }
-        finally {
+        } finally {
 
             try {
                 FileSystemUtils.deleteRecursively(jobDir);
@@ -165,17 +158,17 @@ public class EncodingService {
 
     /**
      * Encodes a video file to HLS format using FFmpeg.
-     *
+     * <p>
      * FFmpeg command created:
-     *  - Multiple .ts segment files
-     *  - A .m3u8 playlist file for this quality
+     * - Multiple .ts segment files
+     * - A .m3u8 playlist file for this quality
      *
      * @param localVideoPath the path to the local video file
-     * @param qualityDir the directory to store the encoded quality files
-     * @param width the width of the output video
-     * @param height the height of the output video
-     * @param bitrate the bitrate of the output video
-     * @throws IOException throws IOException
+     * @param qualityDir     the directory to store the encoded quality files
+     * @param width          the width of the output video
+     * @param height         the height of the output video
+     * @param bitrate        the bitrate of the output video
+     * @throws IOException          throws IOException
      * @throws InterruptedException throws InterruptedException
      */
     private void encodeToHLS(Path localVideoPath, Path qualityDir,
@@ -234,13 +227,10 @@ public class EncodingService {
         master.append("#EXT-X-VERSION:3\n\n");
 
         // Add each quality to master playlist
-        int[][] qualities = {{5000, 1920, 1080}, {2800, 1280, 720},
-                {1400, 854, 480}};
-
-        for (int[] q : qualities) {
-            int bitrate = q[0];
-            int width = q[1];
-            int height = q[2];
+        for (int[] quality : VIDEO_QUALITIES) {
+            int bitrate = quality[0];
+            int width = quality[1];
+            int height = quality[2];
 
             master.append("#EXT-X-STREAM-INF:BANDWIDTH=")
                     .append(bitrate * 1000)
@@ -254,32 +244,39 @@ public class EncodingService {
 
     private void uploadEncodedFilesToS3(Path encodedDir, String s3Prefix) throws IOException {
 
-        Files.walk(encodedDir)
-                .filter(Files::isRegularFile)
-                .forEach(file -> {
-                    try{
-                        Path relativePath = encodedDir.relativize(file);
+        try (var files = Files.walk(encodedDir)) {
 
-                        String s3Key = s3Prefix + relativePath.toString().replace("\\", "/");
+            files.filter(Files::isRegularFile)
+                    .forEach(file -> {
 
-                        String contentType = file.getFileName().toString().endsWith(".m3u8")
-                                ? "application/x-mpegURL"
-                                : "video/MP2T";
+                        try {
+                            Path relativePath =
+                                    encodedDir.relativize(file);
 
-                        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
-                                .bucket(bucketName)
-                                .key(s3Key)
-                                .contentType(contentType)
-                                .contentLength(Files.size(file))
-                                .build();
+                            String s3Key = s3Prefix + relativePath.toString()
+                                    .replace("\\", "/");
 
-                        s3Client.putObject(putObjectRequest, RequestBody.fromFile(file));
+                            String contentType = file.getFileName().toString().endsWith(".m3u8")
+                                    ? "application/x-mpegURL"
+                                    : "video/MP2T";
 
-                        log.info("Uploaded {} to S3 as {}", file, s3Key);
-                    }
-                    catch (Exception e){
-                        throw new RuntimeException("Failed to upload file: " + file, e);
-                    }
-                });
+                            PutObjectRequest request = PutObjectRequest.builder()
+                                    .bucket(bucketName)
+                                    .key(s3Key)
+                                    .contentType(contentType)
+                                    .contentLength(Files.size(file))
+                                    .build();
+
+                            s3Client.putObject(request, RequestBody.fromFile(file));
+
+                            log.info("Uploaded {} to S3 as {}", file, s3Key);
+
+                        } catch (Exception e) {
+                            throw new RuntimeException(
+                                    "Failed to upload file: " + file, e
+                            );
+                        }
+                    });
+        }
     }
 }
