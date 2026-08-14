@@ -12,8 +12,6 @@ import lombok.NoArgsConstructor;
 public class VideoEncodedEvent {
 
     private String movieId;
-    //private String hlsUrl; to be removed
-    private String masterPlaylistKey;
     private boolean success;
     private String errorMessage;
 }

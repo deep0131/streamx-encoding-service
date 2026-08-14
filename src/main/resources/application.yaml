@@ -29,10 +29,10 @@ aws:
     bucket-name: ${BUCKET_NAME}
 
 ffmpeg:
-  path: ${FFMPEG_PATH:ffmpeg}
+  path: ${FFMPEG_PATH:E:/StreamX/ffmpeg/bin/ffmpeg.exe}
 
 encoding:
-  base_path: ${TEMP_DIR:/tmp/encoding}
+  base_path: ${TEMP_DIR:E:/StreamX/tmp/encoding}
 
 management:
   endpoints:

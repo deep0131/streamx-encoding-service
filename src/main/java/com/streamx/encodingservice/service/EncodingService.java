@@ -27,7 +27,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class EncodingService {
 
-    private static final String VIDEO_ENCODED_TOPIC = "video-encoded";
+    private static final String VIDEO_ENCODED_TOPIC = "video.encoded";
     // Video quality to encode
     // Format: resolution, bitrate, height
     private static final List<int[]> VIDEO_QUALITIES = Arrays.asList(
@@ -104,7 +104,6 @@ public class EncodingService {
             VideoEncodedEvent videoEncodedEvent = VideoEncodedEvent.builder()
                     .movieId(videoUploadedEvent.getMovieId())
                     //.hlsUrl(hlsUrl) to be removed
-                    .masterPlaylistKey(masterPlaylistKey)
                     .success(true)
                     .build();
 
