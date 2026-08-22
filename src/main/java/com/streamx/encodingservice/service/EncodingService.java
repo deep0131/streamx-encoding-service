@@ -37,7 +37,7 @@ public class EncodingService {
     );
     private final S3Client s3Client;
     private final KafkaTemplate<String, VideoEncodedEvent> kafkaTemplate;
-    @Value("${aws.s3.bucket.name}")
+    @Value("${aws.s3.bucket-name}")
     private String bucketName;
     @Value("${ffmpeg.path}")
     private String ffmpegPath;

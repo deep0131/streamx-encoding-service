@@ -21,6 +21,8 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("org.springframework.boot:spring-boot-starter-kafka")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
+	implementation("com.fasterxml.jackson.core:jackson-core:2.21.0")
+	implementation("com.fasterxml.jackson.core:jackson-databind:2.21.0")
     implementation(platform("software.amazon.awssdk:bom:2.33.2"))
     implementation("software.amazon.awssdk:s3")
 	compileOnly("org.projectlombok:lombok")

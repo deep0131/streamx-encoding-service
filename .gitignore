@@ -19,3 +19,5 @@ Thumbs.db
 
 # Java
 out/
+bin/
+*.class
