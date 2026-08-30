@@ -227,8 +227,8 @@ public class EncodingService {
 
         // Add each quality to master playlist
         for (int[] quality : VIDEO_QUALITIES) {
-            int bitrate = quality[0];
-            int width = quality[1];
+            int width = quality[0];
+            int bitrate = quality[1];
             int height = quality[2];
 
             master.append("#EXT-X-STREAM-INF:BANDWIDTH=")
